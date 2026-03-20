@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from service.analyzer import analyze_turn, mark_event_analyzed, save_analysis_results
 from service.db import get_conn, get_settings
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
-from service.memory_ops import save_review_candidate, upsert_memory
+from service.memory_ops import archive_memory, list_memories_by_conflict_scope, save_review_candidate, upsert_memory
 
 
 TEMPORAL_HINTS = [
@@ -283,6 +283,68 @@ def consolidate_working_memories(
     }
 
 
+def _build_memory_payload_from_analysis(item: Dict[str, Any], user_code: str) -> Dict[str, Any]:
+    category = str(item.get("category") or "analysis")
+    attribute = str(item.get("attribute") or "memory")
+    value = str(item.get("value") or item.get("claim") or "").strip()
+    return {
+        "user_code": user_code,
+        "memory_type": "fact" if category == "self_description" else "context",
+        "title": f"{attribute}: {value[:60]}",
+        "content": str(item.get("claim") or value),
+        "summary": value[:240],
+        "tags": list(dict.fromkeys(list(item.get("tags") or []) + ["analysis"])),
+        "source_type": "analysis",
+        "confidence": float(item.get("confidence") or 0.5),
+        "importance": 5 if item.get("time_scope") == "long_term" else 4,
+        "status": "active",
+        "is_explicit": item.get("evidence_type") == "explicit",
+        "subject_key": item.get("subject"),
+        "attribute_key": item.get("attribute"),
+        "value_text": value,
+        "conflict_scope": item.get("conflict_scope"),
+    }
+
+
+def resolve_analysis_memory(item: Dict[str, Any], user_code: str) -> Dict[str, Any]:
+    payload = _build_memory_payload_from_analysis(item, user_code)
+    conflict_scope = str(item.get("conflict_scope") or "").strip()
+    conflict_mode = str(item.get("conflict_mode") or "coexist")
+    existing = (
+        list_memories_by_conflict_scope(user_code=user_code, conflict_scope=conflict_scope)
+        if conflict_scope
+        else []
+    )
+    exact_match = next(
+        (
+            row
+            for row in existing
+            if str(row.get("value_text") or row.get("content") or "").strip() == payload["value_text"]
+        ),
+        None,
+    )
+    if exact_match:
+        payload["id"] = int(exact_match["id"])
+        return {"memory": upsert_memory(payload), "resolution": "updated-existing"}
+
+    if existing and conflict_mode == "replace":
+        archived = []
+        for row in existing:
+            archived_row = archive_memory(int(row["id"]), user_code)
+            if archived_row:
+                archived.append(archived_row)
+        return {
+            "memory": upsert_memory(payload),
+            "resolution": "replaced-conflicting",
+            "archived": archived,
+        }
+
+    if existing and conflict_mode == "review":
+        return {"memory": None, "resolution": "needs-review", "existing": existing}
+
+    return {"memory": upsert_memory(payload), "resolution": "inserted-new"}
+
+
 def run_capture_cycle(
     *,
     user_text: str,
@@ -339,23 +401,25 @@ def run_capture_cycle(
         confidence = float(item.get("confidence") or 0.5)
         tags = list(item.get("tags") or [])
         if action == "long_term" and claim:
-            persisted.append(
-                upsert_memory(
-                    {
-                        "user_code": resolved_user,
-                        "memory_type": "fact" if category == "self_description" else "context",
-                        "title": "自动分析: " + claim[:60],
-                        "content": claim,
-                        "summary": claim[:240],
-                        "tags": list(dict.fromkeys(tags + ["analysis"])),
-                        "source_type": "analysis",
-                        "confidence": confidence,
-                        "importance": 5 if category == "self_description" else 4,
-                        "status": "active",
-                        "is_explicit": item.get("evidence_type") == "explicit",
-                    }
+            resolved = resolve_analysis_memory(item, resolved_user)
+            if resolved.get("memory"):
+                persisted.append(resolved)
+            elif resolved.get("resolution") == "needs-review":
+                review_items.append(
+                    save_review_candidate(
+                        user_code=resolved_user,
+                        source_text=user_text,
+                        candidate={
+                            "title": "待确认候选: " + claim[:60],
+                            "content": claim,
+                            "memory_type": "context",
+                            "reason": "analysis-conflict-review:" + category,
+                            "confidence": confidence,
+                            "tags": list(dict.fromkeys(tags + ["analysis-review"])),
+                            "status": "pending",
+                        },
+                    )
                 )
-            )
         elif action == "review" and claim:
             review_items.append(
                 save_review_candidate(

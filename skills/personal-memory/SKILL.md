@@ -41,6 +41,8 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 - Stable facts and preferences should become long-term memory automatically.
 - time-scoped project context should go to `working_memory` automatically.
 - Sensitive or ambiguous content should go to review automatically.
+- Durable memory should be slot-based whenever possible, for example `user.favorite_drink = 黑咖啡`.
+- Conflict detection should be based on slot identity, not raw-text similarity.
 - Use `scripts/memory_capture_cycle.py` as the default path.
 - `scripts/memory_capture.py` remains available for one-off sentence extraction.
 

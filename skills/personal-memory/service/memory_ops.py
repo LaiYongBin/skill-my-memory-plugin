@@ -20,7 +20,8 @@ def get_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[Dict
             SELECT id, user_code, memory_type, title, content, summary, tags,
                    source_type, source_ref, confidence, importance, status,
                    is_explicit, supersedes_id, conflict_with_id,
-                   valid_from, valid_to, created_at, updated_at, deleted_at
+                   valid_from, valid_to, subject_key, attribute_key, value_text,
+                   conflict_scope, created_at, updated_at, deleted_at
             FROM memory_item
             WHERE id = %s AND user_code = %s
             """,
@@ -39,7 +40,8 @@ def find_existing_memory(
             SELECT id, user_code, memory_type, title, content, summary, tags,
                    source_type, source_ref, confidence, importance, status,
                    is_explicit, supersedes_id, conflict_with_id,
-                   valid_from, valid_to, created_at, updated_at, deleted_at
+                   valid_from, valid_to, subject_key, attribute_key, value_text,
+                   conflict_scope, created_at, updated_at, deleted_at
             FROM memory_item
             WHERE user_code = %s
               AND memory_type = %s
@@ -53,6 +55,31 @@ def find_existing_memory(
         )
         row = cur.fetchone()
         return dict(row) if row else None
+
+
+def list_memories_by_conflict_scope(
+    *, user_code: str, conflict_scope: str, include_archived: bool = False
+) -> List[Dict[str, Any]]:
+    conditions = ["user_code = %s", "conflict_scope = %s", "deleted_at IS NULL"]
+    params: List[Any] = [user_code, conflict_scope]
+    if not include_archived:
+        conditions.append("status = 'active'")
+    where_sql = " AND ".join(conditions)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT id, user_code, memory_type, title, content, summary, tags,
+                   source_type, source_ref, confidence, importance, status,
+                   is_explicit, supersedes_id, conflict_with_id,
+                   valid_from, valid_to, subject_key, attribute_key, value_text,
+                   conflict_scope, created_at, updated_at, deleted_at
+            FROM memory_item
+            WHERE {where_sql}
+            ORDER BY updated_at DESC, id DESC
+            """,
+            params,
+        )
+        return [dict(row) for row in cur.fetchall()]
 
 
 def save_review_candidate(
@@ -330,6 +357,10 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
         "is_explicit": payload.get("is_explicit", False),
         "valid_from": payload.get("valid_from"),
         "valid_to": payload.get("valid_to"),
+        "subject_key": payload.get("subject_key"),
+        "attribute_key": payload.get("attribute_key"),
+        "value_text": payload.get("value_text"),
+        "conflict_scope": payload.get("conflict_scope"),
     }
     with get_conn() as conn, conn.cursor() as cur:
         if payload.get("id"):
@@ -349,6 +380,10 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
                     is_explicit = %(is_explicit)s,
                     valid_from = %(valid_from)s,
                     valid_to = %(valid_to)s,
+                    subject_key = %(subject_key)s,
+                    attribute_key = %(attribute_key)s,
+                    value_text = %(value_text)s,
+                    conflict_scope = %(conflict_scope)s,
                     updated_at = now()
                 WHERE id = %(id)s AND user_code = %(user_code)s AND deleted_at IS NULL
                 RETURNING id
@@ -361,11 +396,13 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
                 INSERT INTO memory_item (
                     user_code, memory_type, title, content, summary, tags,
                     source_type, source_ref, confidence, importance, status,
-                    is_explicit, valid_from, valid_to
+                    is_explicit, valid_from, valid_to,
+                    subject_key, attribute_key, value_text, conflict_scope
                 ) VALUES (
                     %(user_code)s, %(memory_type)s, %(title)s, %(content)s, %(summary)s, %(tags)s,
                     %(source_type)s, %(source_ref)s, %(confidence)s, %(importance)s, %(status)s,
-                    %(is_explicit)s, %(valid_from)s, %(valid_to)s
+                    %(is_explicit)s, %(valid_from)s, %(valid_to)s,
+                    %(subject_key)s, %(attribute_key)s, %(value_text)s, %(conflict_scope)s
                 )
                 RETURNING id
                 """,

@@ -22,6 +22,7 @@ SQL_FILES = [
     "004_review_candidates.sql",
     "005_capture_cycle.sql",
     "006_memory_analysis.sql",
+    "007_slot_memory.sql",
 ]
 
 REQUIRED_ENV_VARS = [

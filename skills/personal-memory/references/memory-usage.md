@@ -45,10 +45,22 @@ Current preferred runtime:
 - record the raw turn into `conversation_event`
 - classify the user turn into `long_term`, `working_memory`, `review_required`, or `ignore`
 - persist a structured `memory_analysis_result` first, then decide how to write memory
+- represent durable memory as slots such as `subject + attribute + value`
+- resolve conflicts by slot, not by raw text
 - persist long-term memory automatically when confidence is high
 - persist short-lived task and project context into `working_memory`
 - run consolidation periodically to expire or promote memory where appropriate
 - prefer asynchronous analysis in normal chat flows so memory capture does not block the main answer
+
+Conflict examples:
+
+- `user.favorite_drink = 黑咖啡`
+- `user.favorite_food = 白菜`
+  These coexist because they are different slots.
+
+- `user.favorite_drink = 黑咖啡`
+- `user.favorite_drink = 奶茶`
+  These conflict because they are the same slot, so the newer one should usually replace the older one.
 
 ## Candidate Extraction
 
