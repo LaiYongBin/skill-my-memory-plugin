@@ -2,6 +2,7 @@ import os
 from typing import Dict, Union
 
 import psycopg
+from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 
 
@@ -20,7 +21,7 @@ def get_settings() -> Dict[str, Union[str, int]]:
 
 def get_conn() -> psycopg.Connection:
     settings = get_settings()
-    return psycopg.connect(
+    conn = psycopg.connect(
         host=settings["host"],
         port=settings["port"],
         user=settings["user"],
@@ -28,3 +29,5 @@ def get_conn() -> psycopg.Connection:
         dbname=settings["database"],
         row_factory=dict_row,
     )
+    register_vector(conn)
+    return conn

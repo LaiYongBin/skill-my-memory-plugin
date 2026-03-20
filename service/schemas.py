@@ -59,6 +59,17 @@ class CaptureRequest(BaseModel):
     auto_persist: bool = False
 
 
+class ReviewListRequest(BaseModel):
+    user_code: Optional[str] = None
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class ReviewActionRequest(BaseModel):
+    id: int
+    user_code: Optional[str] = None
+    action: str
+
+
 class ApiResponse(BaseModel):
     ok: bool
     data: Optional[Any] = None

@@ -7,8 +7,9 @@ import argparse
 import json
 
 from common import request_json, start_service
-from service.extraction import extract_candidates
-from service.memory_ops import upsert_memory
+from service.db import get_settings
+from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
+from service.memory_ops import save_review_candidate, upsert_memory
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,15 +33,39 @@ def main() -> int:
         return 0
 
     candidates = extract_candidates(args.text)
-    if args.auto_persist:
-        persisted = []
-        for candidate in candidates:
+    review_candidates = extract_review_candidates(args.text)
+    persisted = []
+    remaining = []
+    review_items = []
+    for candidate in candidates:
+        auto_persist = args.auto_persist or should_auto_persist(candidate)
+        if auto_persist:
             candidate["user_code"] = args.user_code
             persisted.append(upsert_memory(candidate))
-        print(json.dumps({"ok": True, "data": {"candidates": persisted, "count": len(persisted)}}, ensure_ascii=False, default=str))
-        return 0
-
-    print(json.dumps({"ok": True, "data": {"candidates": candidates, "count": len(candidates)}}, ensure_ascii=False, default=str))
+        else:
+            remaining.append(candidate)
+    resolved_user = args.user_code or str(get_settings()["memory_user"])
+    for candidate in review_candidates:
+        review_items.append(
+            save_review_candidate(user_code=resolved_user, source_text=args.text, candidate=candidate)
+        )
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "data": {
+                    "persisted": persisted,
+                    "persisted_count": len(persisted),
+                    "candidates": remaining,
+                    "candidate_count": len(remaining),
+                    "review_candidates": review_items,
+                    "review_candidate_count": len(review_items),
+                },
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+    )
     return 0
 
 

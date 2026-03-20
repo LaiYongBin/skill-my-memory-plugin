@@ -24,6 +24,19 @@ RULE_PATTERNS = [
     r"回答时(?P<content>.+)",
 ]
 
+RISKY_KEYWORDS = [
+    "生病",
+    "抑郁",
+    "焦虑",
+    "怀孕",
+    "对象是不是",
+    "爱不爱",
+    "讨厌我",
+    "身份",
+    "政治",
+    "宗教",
+]
+
 
 def _build_candidate(
     *,
@@ -46,6 +59,21 @@ def _build_candidate(
         "status": "active",
         "tags": ["auto-captured"] if not is_explicit else ["explicit-memory"],
         "source_type": "conversation",
+    }
+
+
+def _build_review_candidate(
+    *, text: str, reason: str, memory_type: str = "relationship"
+) -> Dict[str, Any]:
+    content = text.strip("。！？!?,， ")
+    return {
+        "title": "待确认候选: " + content[:60],
+        "content": content,
+        "memory_type": memory_type,
+        "confidence": 0.35,
+        "reason": reason,
+        "tags": ["review-candidate"],
+        "status": "pending",
     }
 
 
@@ -115,3 +143,40 @@ def extract_candidates(text: str) -> List[Dict[str, Any]]:
         )
 
     return candidates
+
+
+def extract_review_candidates(text: str) -> List[Dict[str, Any]]:
+    stripped = text.strip()
+    if not stripped:
+        return []
+    if any(keyword in stripped for keyword in RISKY_KEYWORDS):
+        return [
+            _build_review_candidate(
+                text=stripped,
+                reason="sensitive-or-ambiguous",
+            )
+        ]
+    return []
+
+
+def is_low_risk_candidate(candidate: Dict[str, Any]) -> bool:
+    text = str(candidate.get("content", ""))
+    return not any(keyword in text for keyword in RISKY_KEYWORDS)
+
+
+def should_auto_persist(candidate: Dict[str, Any]) -> bool:
+    if candidate.get("is_explicit"):
+        return True
+    if not is_low_risk_candidate(candidate):
+        return False
+
+    memory_type = candidate.get("memory_type")
+    confidence = float(candidate.get("confidence", 0.0))
+
+    if memory_type == "rule" and confidence >= 0.8:
+        return True
+    if memory_type == "preference" and confidence >= 0.72:
+        return True
+    if memory_type == "fact" and confidence >= 0.8:
+        return True
+    return False

@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from psycopg.types.json import Json
 
 from service.db import get_conn, get_settings
+from service.embeddings import embeddings_enabled, refresh_memory_embedding, vector_search
 
 
 def _resolve_user(user_code: Optional[str]) -> str:
@@ -29,6 +30,151 @@ def get_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[Dict
         return dict(row) if row else None
 
 
+def find_existing_memory(
+    *, user_code: str, memory_type: str, title: str, content: str
+) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_code, memory_type, title, content, summary, tags,
+                   source_type, source_ref, confidence, importance, status,
+                   is_explicit, supersedes_id, conflict_with_id,
+                   valid_from, valid_to, created_at, updated_at, deleted_at
+            FROM memory_item
+            WHERE user_code = %s
+              AND memory_type = %s
+              AND title = %s
+              AND content = %s
+              AND deleted_at IS NULL
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (user_code, memory_type, title, content),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def save_review_candidate(
+    *, user_code: str, source_text: str, candidate: Dict[str, Any]
+) -> Dict[str, Any]:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO memory_review_candidate (
+                user_code, source_text, title, content, memory_type, reason,
+                confidence, status, tags
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, user_code, source_text, title, content, memory_type, reason,
+                      confidence, status, tags, created_at, updated_at
+            """,
+            (
+                user_code,
+                source_text,
+                candidate["title"],
+                candidate["content"],
+                candidate["memory_type"],
+                candidate["reason"],
+                candidate.get("confidence", 0.35),
+                candidate.get("status", "pending"),
+                Json(candidate.get("tags") or []),
+            ),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return dict(row)
+
+
+def list_review_candidates(user_code: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
+    resolved_user = _resolve_user(user_code)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_code, source_text, title, content, memory_type, reason,
+                   confidence, status, tags, created_at, updated_at
+            FROM memory_review_candidate
+            WHERE user_code = %s AND status = 'pending'
+            ORDER BY updated_at DESC, id DESC
+            LIMIT %s
+            """,
+            (resolved_user, limit),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_review_candidate(candidate_id: int, user_code: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    resolved_user = _resolve_user(user_code)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_code, source_text, title, content, memory_type, reason,
+                   confidence, status, tags, created_at, updated_at
+            FROM memory_review_candidate
+            WHERE id = %s AND user_code = %s
+            """,
+            (candidate_id, resolved_user),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def reject_review_candidate(candidate_id: int, user_code: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    resolved_user = _resolve_user(user_code)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE memory_review_candidate
+            SET status = 'rejected', updated_at = now()
+            WHERE id = %s AND user_code = %s AND status = 'pending'
+            RETURNING id, user_code, source_text, title, content, memory_type, reason,
+                      confidence, status, tags, created_at, updated_at
+            """,
+            (candidate_id, resolved_user),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return dict(row) if row else None
+
+
+def approve_review_candidate(candidate_id: int, user_code: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    resolved_user = _resolve_user(user_code)
+    candidate = get_review_candidate(candidate_id, resolved_user)
+    if not candidate or candidate.get("status") != "pending":
+        return None
+
+    memory = upsert_memory(
+        {
+            "user_code": resolved_user,
+            "memory_type": candidate["memory_type"],
+            "title": candidate["title"].replace("待确认候选: ", "确认记忆: ", 1),
+            "content": candidate["content"],
+            "summary": candidate["content"][:240],
+            "tags": candidate.get("tags") or [],
+            "source_type": "review-approved",
+            "confidence": float(candidate.get("confidence") or 0.5),
+            "importance": 6,
+            "status": "active",
+            "is_explicit": True,
+        }
+    )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE memory_review_candidate
+            SET status = 'approved', updated_at = now()
+            WHERE id = %s AND user_code = %s
+            """,
+            (candidate_id, resolved_user),
+        )
+        conn.commit()
+
+    return {
+        "candidate": get_review_candidate(candidate_id, resolved_user),
+        "memory": memory,
+    }
+
+
 def search_memories(
     *,
     query: str = "",
@@ -39,6 +185,11 @@ def search_memories(
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
+    vector_scores = {}
+    if query.strip() and embeddings_enabled():
+        for row in vector_search(query.strip(), resolved_user, limit=limit):
+            vector_scores[int(row["memory_id"])] = float(row["vector_score"])
+
     tags = tags or []
     conditions = ["user_code = %s", "deleted_at IS NULL"]
     where_params: List[Any] = [resolved_user]
@@ -94,11 +245,66 @@ def search_memories(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
         rows = cur.fetchall()
-        return [dict(row) for row in rows]
+        result_rows = [dict(row) for row in rows]
+    if not vector_scores:
+        return result_rows
+
+    merged = []
+    seen_ids = set()
+    for row in result_rows:
+        memory_id = int(row["id"])
+        row["vector_score"] = vector_scores.get(memory_id, 0.0)
+        row["hybrid_score"] = float(row["rank_score"]) + row["vector_score"]
+        merged.append(row)
+        seen_ids.add(memory_id)
+
+    if vector_scores:
+        with get_conn() as conn, conn.cursor() as cur:
+            missing_ids = [memory_id for memory_id in vector_scores if memory_id not in seen_ids]
+            if missing_ids:
+                cur.execute(
+                    """
+                    SELECT id, user_code, memory_type, title, content, summary, tags,
+                           source_type, source_ref, confidence, importance, status,
+                           is_explicit, created_at, updated_at,
+                           0::float AS rank_score
+                    FROM memory_item
+                    WHERE id = ANY(%s)
+                    ORDER BY updated_at DESC
+                    """,
+                    (missing_ids,),
+                )
+                for row in cur.fetchall():
+                    payload = dict(row)
+                    payload["vector_score"] = vector_scores.get(int(payload["id"]), 0.0)
+                    payload["hybrid_score"] = payload["vector_score"]
+                    merged.append(payload)
+
+    merged.sort(
+        key=lambda item: (
+            item.get("is_explicit", False),
+            item.get("hybrid_score", 0.0),
+            item.get("importance", 0),
+            float(item.get("confidence", 0.0)),
+        ),
+        reverse=True,
+    )
+    return merged[:limit]
 
 
 def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
     resolved_user = _resolve_user(payload.get("user_code"))
+    existing = None
+    if not payload.get("id"):
+        existing = find_existing_memory(
+            user_code=resolved_user,
+            memory_type=payload["memory_type"],
+            title=payload["title"],
+            content=payload["content"],
+        )
+        if existing:
+            payload = payload.copy()
+            payload["id"] = int(existing["id"])
     tags = payload.get("tags") or []
     values = {
         "user_code": resolved_user,
@@ -158,7 +364,14 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
         row = cur.fetchone()
         conn.commit()
-    return get_memory(int(row["id"]), resolved_user) or {}
+    result = get_memory(int(row["id"]), resolved_user) or {}
+    try:
+        embedding_source = (result.get("summary") or result.get("content") or result.get("title") or "").strip()
+        if embedding_source:
+            refresh_memory_embedding(int(row["id"]), resolved_user, embedding_source)
+    except Exception:
+        pass
+    return result
 
 
 def promote_memory(payload: Dict[str, Any]) -> Dict[str, Any]:

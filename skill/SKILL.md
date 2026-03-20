@@ -46,6 +46,9 @@ python3 scripts/memory_query.py --query "最近喜欢什么"
 python3 scripts/memory_upsert.py --promote --explicit --memory-type preference --content "我喜欢黑咖啡"
 python3 scripts/memory_capture.py --text "我喜欢黑咖啡"
 python3 scripts/memory_capture.py --text "记住我对象喜欢花" --auto-persist
+python3 scripts/review_candidates.py --limit 20
+python3 scripts/review_action.py --id 1 --action approve
+python3 scripts/review_action.py --id 1 --action reject
 python3 scripts/memory_delete.py --id 123 --archive
 ```
 
@@ -57,6 +60,10 @@ python3 scripts/memory_delete.py --id 123 --archive
 - `LYB_SKILL_PG_PASSWORD`
 - `LYB_SKILL_PG_MY_PERSONAL_DATABASE`
 - `LYB_SKILL_MEMORY_USER`
+- `LYB_SKILL_MEMORY_EMBED_API_KEY` (optional)
+- `LYB_SKILL_MEMORY_EMBED_BASE_URL` (optional, default `https://dashscope.aliyuncs.com/api/v1`)
+- `LYB_SKILL_MEMORY_EMBED_MODEL` (optional, default `text-embedding-v4`)
+- `LYB_SKILL_MEMORY_EMBED_DIM` (optional, default `1536`)
 
 ## References
 
