@@ -44,9 +44,11 @@ Current preferred runtime:
 
 - record the raw turn into `conversation_event`
 - classify the user turn into `long_term`, `working_memory`, `review_required`, or `ignore`
+- persist a structured `memory_analysis_result` first, then decide how to write memory
 - persist long-term memory automatically when confidence is high
 - persist short-lived task and project context into `working_memory`
 - run consolidation periodically to expire or promote memory where appropriate
+- prefer asynchronous analysis in normal chat flows so memory capture does not block the main answer
 
 ## Candidate Extraction
 

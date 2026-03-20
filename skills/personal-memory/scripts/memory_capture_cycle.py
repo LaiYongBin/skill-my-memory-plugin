@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-ref")
     parser.add_argument("--user-code")
     parser.add_argument("--no-consolidate", action="store_true")
+    parser.add_argument("--async-mode", action="store_true")
     return parser.parse_args()
 
 
@@ -34,7 +35,8 @@ def main() -> int:
     }
     if start_service():
         try:
-            response = request_json("POST", "/memory/capture-cycle", payload, timeout=20)
+            path = "/memory/capture-cycle-async" if args.async_mode else "/memory/capture-cycle"
+            response = request_json("POST", path, payload, timeout=20)
             print(json.dumps(response, ensure_ascii=False, default=str))
             return 0
         except (HTTPError, URLError, TimeoutError, OSError):

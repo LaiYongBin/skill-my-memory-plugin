@@ -25,6 +25,7 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 2. For direct lookup, use the service endpoints.
 3. At the end of each user turn, call `scripts/memory_capture_cycle.py` with the user message and the final assistant answer.
 4. If startup fails, use the direct scripts in `scripts/`.
+5. Prefer `--async-mode` in normal chat flows so memory analysis does not block the user-facing reply.
 
 ## Response Style
 
@@ -54,8 +55,9 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 
 ```bash
 python3 scripts/ensure_service.py
-python3 scripts/memory_capture_cycle.py --session-key default --user-text "我是一个很感性的人" --assistant-text "我记下来了。"
-python3 scripts/memory_capture_cycle.py --session-key default --user-text "这周先优先排查支付模块的超时问题" --assistant-text "收到，我会先围绕支付超时排查。"
+python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "我是一个很感性的人" --assistant-text "我记下来了。"
+python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "这周先优先排查支付模块的超时问题" --assistant-text "收到，我会先围绕支付超时排查。"
+python3 scripts/memory_analysis_results.py --session-key default
 python3 scripts/memory_consolidate.py
 python3 scripts/memory_consolidate.py --list-only --session-key default
 python3 scripts/memory_query.py --query "最近喜欢什么"

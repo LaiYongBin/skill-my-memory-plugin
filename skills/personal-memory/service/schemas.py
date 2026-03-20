@@ -73,6 +73,12 @@ class ConsolidateRequest(BaseModel):
     session_key: Optional[str] = None
 
 
+class AnalysisListRequest(BaseModel):
+    user_code: Optional[str] = None
+    session_key: Optional[str] = None
+    limit: int = Field(default=20, ge=1, le=100)
+
+
 class ReviewListRequest(BaseModel):
     user_code: Optional[str] = None
     limit: int = Field(default=20, ge=1, le=100)

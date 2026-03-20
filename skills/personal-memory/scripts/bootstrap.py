@@ -21,6 +21,7 @@ SQL_FILES = [
     "003_pgvector_upgrade.sql",
     "004_review_candidates.sql",
     "005_capture_cycle.sql",
+    "006_memory_analysis.sql",
 ]
 
 REQUIRED_ENV_VARS = [
@@ -102,7 +103,8 @@ def verify_database() -> dict:
                   'memory_embedding',
                   'working_memory',
                   'memory_review_candidate',
-                  'conversation_event'
+                  'conversation_event',
+                  'memory_analysis_result'
               )
             ORDER BY table_name
             """

@@ -2,8 +2,9 @@
 
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 
+from service.analyzer import list_analysis_results
 from service.db import get_settings
 from service.capture_cycle import consolidate_working_memories, run_capture_cycle
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
@@ -22,6 +23,7 @@ from service.memory_ops import (
 from service.schemas import (
     ApiResponse,
     ArchiveRequest,
+    AnalysisListRequest,
     CaptureRequest,
     CaptureCycleRequest,
     ConsolidateRequest,
@@ -129,6 +131,29 @@ def capture_memory_cycle(request: CaptureCycleRequest) -> ApiResponse:
     return ApiResponse(ok=True, data=payload)
 
 
+@app.post("/memory/capture-cycle-async", response_model=ApiResponse)
+def capture_memory_cycle_async(
+    request: CaptureCycleRequest, background_tasks: BackgroundTasks
+) -> ApiResponse:
+    background_tasks.add_task(
+        run_capture_cycle,
+        user_text=request.user_text,
+        assistant_text=request.assistant_text,
+        user_code=request.user_code,
+        session_key=request.session_key,
+        source_ref=request.source_ref,
+        consolidate=request.consolidate,
+    )
+    return ApiResponse(
+        ok=True,
+        data={
+            "accepted": True,
+            "session_key": request.session_key,
+            "user_code": request.user_code or str(get_settings()["memory_user"]),
+        },
+    )
+
+
 @app.post("/memory/consolidate", response_model=ApiResponse)
 def consolidate_memory_items(request: ConsolidateRequest) -> ApiResponse:
     payload = consolidate_working_memories(
@@ -136,6 +161,16 @@ def consolidate_memory_items(request: ConsolidateRequest) -> ApiResponse:
         session_key=request.session_key,
     )
     return ApiResponse(ok=True, data=payload)
+
+
+@app.post("/memory/analysis/list", response_model=ApiResponse)
+def list_memory_analysis(request: AnalysisListRequest) -> ApiResponse:
+    rows = list_analysis_results(
+        user_code=request.user_code,
+        session_key=request.session_key,
+        limit=request.limit,
+    )
+    return ApiResponse(ok=True, data={"items": rows, "count": len(rows)})
 
 
 @app.post("/memory/review/list", response_model=ApiResponse)

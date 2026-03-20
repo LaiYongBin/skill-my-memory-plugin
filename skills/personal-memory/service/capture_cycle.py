@@ -6,6 +6,7 @@ import hashlib
 import re
 from typing import Any, Dict, List, Optional
 
+from service.analyzer import analyze_turn, mark_event_analyzed, save_analysis_results
 from service.db import get_conn, get_settings
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
 from service.memory_ops import save_review_candidate, upsert_memory
@@ -293,6 +294,7 @@ def run_capture_cycle(
 ) -> Dict[str, Any]:
     resolved_user = _resolve_user(user_code)
     events = []
+    assistant_event = None
     user_event = record_conversation_event(
         user_code=resolved_user,
         session_key=session_key,
@@ -310,13 +312,69 @@ def run_capture_cycle(
             content=assistant_text,
             source_ref=source_ref,
         )
-        if assistant_event:
-            events.append(assistant_event)
+    if assistant_event:
+        events.append(assistant_event)
+
+    analysis_candidates = analyze_turn(
+        user_text=user_text,
+        assistant_text=assistant_text,
+        user_code=resolved_user,
+        session_key=session_key,
+    )
+    analysis_results = save_analysis_results(
+        user_code=resolved_user,
+        session_key=session_key,
+        source_event_id=int(user_event["id"]) if user_event else None,
+        items=analysis_candidates,
+    )
+    mark_event_analyzed([int(event["id"]) for event in events if event.get("id")])
 
     persisted = []
     pending_candidates = []
     review_items = []
-    for candidate in extract_candidates(user_text):
+    for item in analysis_results:
+        action = item.get("action")
+        claim = str(item.get("claim") or "").strip()
+        category = str(item.get("category") or "analysis")
+        confidence = float(item.get("confidence") or 0.5)
+        tags = list(item.get("tags") or [])
+        if action == "long_term" and claim:
+            persisted.append(
+                upsert_memory(
+                    {
+                        "user_code": resolved_user,
+                        "memory_type": "fact" if category == "self_description" else "context",
+                        "title": "自动分析: " + claim[:60],
+                        "content": claim,
+                        "summary": claim[:240],
+                        "tags": list(dict.fromkeys(tags + ["analysis"])),
+                        "source_type": "analysis",
+                        "confidence": confidence,
+                        "importance": 5 if category == "self_description" else 4,
+                        "status": "active",
+                        "is_explicit": item.get("evidence_type") == "explicit",
+                    }
+                )
+            )
+        elif action == "review" and claim:
+            review_items.append(
+                save_review_candidate(
+                    user_code=resolved_user,
+                    source_text=user_text,
+                    candidate={
+                        "title": "待确认候选: " + claim[:60],
+                        "content": claim,
+                        "memory_type": "context",
+                        "reason": "analysis-review:" + category,
+                        "confidence": confidence,
+                        "tags": list(dict.fromkeys(tags + ["analysis-review"])),
+                        "status": "pending",
+                    },
+                )
+            )
+
+    heuristic_candidates = extract_candidates(user_text)
+    for candidate in heuristic_candidates:
         payload = candidate.copy()
         payload["user_code"] = resolved_user
         if should_auto_persist(candidate):
@@ -329,7 +387,23 @@ def run_capture_cycle(
             save_review_candidate(user_code=resolved_user, source_text=user_text, candidate=candidate)
         )
 
-    working_items = []
+    working_items: List[Dict[str, Any]] = []
+    for item in analysis_results:
+        if item.get("action") != "working_memory":
+            continue
+        claim = str(item.get("claim") or "").strip()
+        if not claim:
+            continue
+        tags = list(item.get("tags") or [])
+        working_items.append(
+            upsert_working_memory(
+                user_code=resolved_user,
+                session_key=session_key,
+                summary=claim[:240],
+                source_text=claim,
+                importance=5 if "coding" in tags or "short-term" in tags else 4,
+            )
+        )
     for candidate in build_working_memory_candidates(user_text, assistant_text):
         working_items.append(
             upsert_working_memory(
@@ -348,6 +422,8 @@ def run_capture_cycle(
     return {
         "events": events,
         "event_count": len(events),
+        "analysis_results": analysis_results,
+        "analysis_result_count": len(analysis_results),
         "persisted": persisted,
         "persisted_count": len(persisted),
         "candidates": pending_candidates,
