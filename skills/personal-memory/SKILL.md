@@ -128,6 +128,8 @@ python3 scripts/memory_delete.py --id 123 --archive
 - `LYB_SKILL_MEMORY_EMBED_BASE_URL` (optional, default `https://dashscope.aliyuncs.com/api/v1`)
 - `LYB_SKILL_MEMORY_EMBED_MODEL` (optional, default `text-embedding-v4`)
 - `LYB_SKILL_MEMORY_EMBED_DIM` (optional, default `1536`)
+- `LYB_SKILL_MEMORY_ANALYZE_TIMEOUT` (optional, default `90`)
+- `LYB_SKILL_MEMORY_CONTEXT_SYNC_TIMEOUT` (optional, default `180`)
 
 ## References
 

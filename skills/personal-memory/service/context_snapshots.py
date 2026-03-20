@@ -81,7 +81,7 @@ def _call_text_model(prompt: str) -> Dict[str, Any]:
         },
         method="POST",
     )
-    with urlopen(request, timeout=30) as response:
+    with urlopen(request, timeout=int(config["timeout"])) as response:
         payload = json.loads(response.read().decode("utf-8"))
     content = payload["choices"][0]["message"]["content"]
     parsed = json.loads(_extract_json(content))

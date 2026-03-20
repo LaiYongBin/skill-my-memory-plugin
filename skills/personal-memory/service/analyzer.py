@@ -58,6 +58,7 @@ def analyzer_config() -> Dict[str, Any]:
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
         ),
         "model": os.environ.get("LYB_SKILL_MEMORY_ANALYZE_MODEL", "qwen-plus-latest"),
+        "timeout": int(os.environ.get("LYB_SKILL_MEMORY_ANALYZE_TIMEOUT", "90")),
     }
 
 
@@ -161,7 +162,7 @@ def _call_analyzer_model(prompt: str) -> List[Dict[str, Any]]:
         },
         method="POST",
     )
-    with urlopen(request, timeout=30) as response:
+    with urlopen(request, timeout=int(config["timeout"])) as response:
         payload = json.loads(response.read().decode("utf-8"))
     content = payload["choices"][0]["message"]["content"]
     parsed = json.loads(_extract_json(content))

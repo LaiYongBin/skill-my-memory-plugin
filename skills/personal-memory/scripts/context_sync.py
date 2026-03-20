@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 
 from common import request_json, start_service
 from service.context_snapshots import sync_session_context
+import os
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,6 +38,7 @@ def load_turns(args: argparse.Namespace) -> list[dict]:
 
 def main() -> int:
     args = parse_args()
+    request_timeout = int(os.environ.get("LYB_SKILL_MEMORY_CONTEXT_SYNC_TIMEOUT", "180"))
     payload = {
         "session_key": args.session_key,
         "turns": load_turns(args),
@@ -47,7 +49,7 @@ def main() -> int:
     }
     if start_service():
         try:
-            response = request_json("POST", "/context/sync", payload, timeout=60)
+            response = request_json("POST", "/context/sync", payload, timeout=request_timeout)
             print(json.dumps(response, ensure_ascii=False, default=str))
             return 0
         except (HTTPError, URLError, TimeoutError, OSError):

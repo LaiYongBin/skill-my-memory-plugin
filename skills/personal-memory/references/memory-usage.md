@@ -56,6 +56,7 @@ Current preferred runtime:
 - persist long-term memory automatically when confidence is high
 - accumulate repeated observed or inferred evidence before promoting role, personality, or profile conclusions
 - preserve both raw conversation events and higher-level summaries, so later questions can trace back from topic summary to concrete discussion context
+- for long transcripts, context sync and analyzer timeouts should be configurable instead of fixed
 
 User-facing behavior:
 
