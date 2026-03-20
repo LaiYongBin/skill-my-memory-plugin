@@ -237,7 +237,7 @@ def search_memories(
                {rank_sql}
         FROM memory_item
         WHERE {where_sql}
-        ORDER BY is_explicit DESC, rank_score DESC, importance DESC, confidence DESC, updated_at DESC
+        ORDER BY rank_score DESC, importance DESC, confidence DESC, is_explicit DESC, updated_at DESC
         LIMIT %s
     """
     params = select_params + where_params + [limit]
@@ -246,7 +246,24 @@ def search_memories(
         cur.execute(sql, params)
         rows = cur.fetchall()
         result_rows = [dict(row) for row in rows]
+    def sort_key(item: Dict[str, Any]) -> Any:
+        hybrid_score = float(item.get("hybrid_score", item.get("rank_score", 0.0)) or 0.0)
+        explicit_bonus = 0.05 if item.get("is_explicit", False) else 0.0
+        importance_bonus = min(int(item.get("importance", 0)), 10) * 0.01
+        confidence_bonus = float(item.get("confidence", 0.0) or 0.0) * 0.02
+        return (
+            hybrid_score + explicit_bonus + importance_bonus + confidence_bonus,
+            hybrid_score,
+            float(item.get("rank_score", 0.0) or 0.0),
+            float(item.get("vector_score", 0.0) or 0.0),
+            item.get("updated_at"),
+        )
+
     if not vector_scores:
+        for row in result_rows:
+            row["vector_score"] = 0.0
+            row["hybrid_score"] = float(row.get("rank_score", 0.0) or 0.0)
+        result_rows.sort(key=sort_key, reverse=True)
         return result_rows
 
     merged = []
@@ -280,15 +297,7 @@ def search_memories(
                     payload["hybrid_score"] = payload["vector_score"]
                     merged.append(payload)
 
-    merged.sort(
-        key=lambda item: (
-            item.get("is_explicit", False),
-            item.get("hybrid_score", 0.0),
-            item.get("importance", 0),
-            float(item.get("confidence", 0.0)),
-        ),
-        reverse=True,
-    )
+    merged.sort(key=sort_key, reverse=True)
     return merged[:limit]
 
 
