@@ -22,8 +22,9 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 ## Runtime Order
 
 1. Run `scripts/ensure_service.py`.
-2. If healthy, use the service endpoints.
-3. If startup fails, use the direct scripts in `scripts/`.
+2. For direct lookup, use the service endpoints.
+3. At the end of each user turn, call `scripts/memory_capture_cycle.py` with the user message and the final assistant answer.
+4. If startup fails, use the direct scripts in `scripts/`.
 
 ## Response Style
 
@@ -35,9 +36,12 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 ## Automatic Capture
 
 - For explicit phrases such as `记住` and `不要忘了`, persist directly as stronger long-term memory.
-- For softer statements such as `我喜欢...`, `我不喜欢...`, `以后请...`, first extract candidate memories.
-- Stable self-descriptions such as `我是一个...的人`, `我是个...的人`, `我很...` should be treated as personal fact candidates.
-- Use `scripts/memory_capture.py` to extract or auto-persist candidates.
+- For each turn, capture memory from the whole turn instead of waiting for a fixed trigger phrase.
+- Stable facts and preferences should become long-term memory automatically.
+- time-scoped project context should go to `working_memory` automatically.
+- Sensitive or ambiguous content should go to review automatically.
+- Use `scripts/memory_capture_cycle.py` as the default path.
+- `scripts/memory_capture.py` remains available for one-off sentence extraction.
 
 ## Safety Rules
 
@@ -50,6 +54,10 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 
 ```bash
 python3 scripts/ensure_service.py
+python3 scripts/memory_capture_cycle.py --session-key default --user-text "我是一个很感性的人" --assistant-text "我记下来了。"
+python3 scripts/memory_capture_cycle.py --session-key default --user-text "这周先优先排查支付模块的超时问题" --assistant-text "收到，我会先围绕支付超时排查。"
+python3 scripts/memory_consolidate.py
+python3 scripts/memory_consolidate.py --list-only --session-key default
 python3 scripts/memory_query.py --query "最近喜欢什么"
 python3 scripts/memory_upsert.py --promote --explicit --memory-type preference --content "我喜欢黑咖啡"
 python3 scripts/memory_capture.py --text "我喜欢黑咖啡"

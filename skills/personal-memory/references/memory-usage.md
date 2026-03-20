@@ -40,6 +40,14 @@ Unsafe candidates:
 
 Use lower confidence for unsafe candidates and prefer confirmation.
 
+Current preferred runtime:
+
+- record the raw turn into `conversation_event`
+- classify the user turn into `long_term`, `working_memory`, `review_required`, or `ignore`
+- persist long-term memory automatically when confidence is high
+- persist short-lived task and project context into `working_memory`
+- run consolidation periodically to expire or promote memory where appropriate
+
 ## Candidate Extraction
 
 Current version uses heuristics instead of model inference.
@@ -82,6 +90,12 @@ Extract as candidates first:
 - `我是一个...的人`
 - `我是个...的人`
 - `我很...`
+
+Working-memory oriented examples:
+
+- `这周先优先排查支付模块的超时问题`
+- `当前先别动数据库迁移`
+- `最近先按中文输出`
 
 ## Vector Retrieval
 

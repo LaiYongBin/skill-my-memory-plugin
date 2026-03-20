@@ -59,6 +59,20 @@ class CaptureRequest(BaseModel):
     auto_persist: bool = False
 
 
+class CaptureCycleRequest(BaseModel):
+    user_text: str
+    assistant_text: str = ""
+    session_key: str = "default"
+    source_ref: Optional[str] = None
+    user_code: Optional[str] = None
+    consolidate: bool = True
+
+
+class ConsolidateRequest(BaseModel):
+    user_code: Optional[str] = None
+    session_key: Optional[str] = None
+
+
 class ReviewListRequest(BaseModel):
     user_code: Optional[str] = None
     limit: int = Field(default=20, ge=1, le=100)

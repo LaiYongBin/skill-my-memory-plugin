@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 
 from service.db import get_settings
+from service.capture_cycle import consolidate_working_memories, run_capture_cycle
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
 from service.memory_ops import (
     approve_review_candidate,
@@ -22,6 +23,8 @@ from service.schemas import (
     ApiResponse,
     ArchiveRequest,
     CaptureRequest,
+    CaptureCycleRequest,
+    ConsolidateRequest,
     DeleteRequest,
     PromoteRequest,
     ReviewActionRequest,
@@ -111,6 +114,28 @@ def capture_memory_candidates(request: CaptureRequest) -> ApiResponse:
             "review_candidate_count": len(review_items),
         },
     )
+
+
+@app.post("/memory/capture-cycle", response_model=ApiResponse)
+def capture_memory_cycle(request: CaptureCycleRequest) -> ApiResponse:
+    payload = run_capture_cycle(
+        user_text=request.user_text,
+        assistant_text=request.assistant_text,
+        user_code=request.user_code,
+        session_key=request.session_key,
+        source_ref=request.source_ref,
+        consolidate=request.consolidate,
+    )
+    return ApiResponse(ok=True, data=payload)
+
+
+@app.post("/memory/consolidate", response_model=ApiResponse)
+def consolidate_memory_items(request: ConsolidateRequest) -> ApiResponse:
+    payload = consolidate_working_memories(
+        user_code=request.user_code,
+        session_key=request.session_key,
+    )
+    return ApiResponse(ok=True, data=payload)
 
 
 @app.post("/memory/review/list", response_model=ApiResponse)
